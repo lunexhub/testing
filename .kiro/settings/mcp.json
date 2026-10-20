@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "voiceoffice": {
+      "url": "https://www.voiceoffice.co.za/api/mcp",
+      "headers": {
+        "Authorization": "Bearer vo_live_KYlWYuaD8nqf6pUO2AghmSs3CdIRnMDy"
+      },
+      "disabled": false,
+      "autoApprove": []
+    }
+  }
+}
