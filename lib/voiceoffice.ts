@@ -75,15 +75,31 @@ class VoiceOfficeClient {
   }
 
   /**
-   * Send booking confirmation
+   * Send booking confirmation (using template if approved, fallback to regular message)
    */
   async sendBookingConfirmation(
     phone: string,
     name: string,
     service: string,
     date: string,
-    time: string
+    time: string,
+    useTemplate: boolean = false
   ): Promise<VoiceOfficeResponse> {
+    if (useTemplate) {
+      try {
+        // Try using approved template first
+        const { templateManager } = await import('./templates');
+        return await templateManager.sendTemplate({
+          to: phone,
+          template: 'booking_confirmation',
+          parameters: [name, service, date, time],
+        });
+      } catch (error) {
+        console.log('Template not available, using fallback message');
+      }
+    }
+
+    // Fallback to regular message
     const message = `✅ *Booking Confirmed!*\n\nHi ${name}! Your appointment has been confirmed.\n\n📋 *Service:* ${service}\n📅 *Date:* ${date}\n⏰ *Time:* ${time}\n\nWe'll send you a reminder 24 hours before your appointment.\n\nReply CANCEL to cancel this booking.`;
 
     return this.sendMessage({ to: phone, message });
