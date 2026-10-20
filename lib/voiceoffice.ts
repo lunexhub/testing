@@ -22,10 +22,6 @@ class VoiceOfficeClient {
   constructor() {
     this.apiKey = process.env.VOICEOFFICE_API_KEY || '';
     this.baseUrl = 'https://www.voiceoffice.co.za';
-
-    if (!this.apiKey) {
-      throw new Error('VOICEOFFICE_API_KEY is not set');
-    }
   }
 
   /**
@@ -33,6 +29,15 @@ class VoiceOfficeClient {
    */
   async sendMessage(params: SendMessageParams): Promise<VoiceOfficeResponse> {
     try {
+      // Runtime check for API key
+      if (!this.apiKey) {
+        console.error('VOICEOFFICE_API_KEY is not configured');
+        return {
+          success: false,
+          error: 'VoiceOffice API key not configured',
+        };
+      }
+
       const response = await fetch(`${this.baseUrl}/v1/messages`, {
         method: 'POST',
         headers: {
