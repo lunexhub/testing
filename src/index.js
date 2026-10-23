@@ -26,6 +26,11 @@ app.use((req, res, next) => {
 // Routes
 app.use('/api', api);
 
+// Favicon handler (prevents 404 in browser)
+app.get('/favicon.ico', (req, res) => {
+  res.status(204).end();
+});
+
 // Root endpoint
 app.get('/', (req, res) => {
   res.json({
