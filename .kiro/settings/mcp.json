@@ -1,12 +1,13 @@
 {
   "mcpServers": {
     "voiceoffice": {
-      "url": "https://www.voiceoffice.co.za/api/mcp",
-      "headers": {
-        "Authorization": "Bearer vo_live_KYlWYuaD8nqf6pUO2AghmSs3CdIRnMDy"
-      },
-      "disabled": false,
-      "autoApprove": []
+      "command": "node",
+      "args": ["./mcp/server.mjs"],
+      "env": {
+        "VOICEOFFICE_PROJECT_ID": "6829535f-c04f-4e11-b186-3639427682dd",
+        "VOICEOFFICE_API_KEY": "vo_test_fcEhByy7NwfcvbMFPTL58dEk4Be5LG9R",
+        "VOICEOFFICE_API_URL": "https://www.voiceoffice.co.za/api/v1"
+      }
     }
   }
 }
