@@ -1,4 +1,4 @@
-import { query } from './database.js';
+import { supabase } from './database.js';
 import voiceoffice from './voiceoffice.js';
 import meta from './meta.js';
 import { v4 as uuidv4 } from 'uuid';
@@ -8,52 +8,62 @@ class BookingService {
     const { name, email, phone } = tenantData;
     const tenantId = uuidv4();
 
-    const result = await query(
-      `INSERT INTO tenants (tenant_id, name, email, phone) 
-       VALUES ($1, $2, $3, $4) 
-       RETURNING *`,
-      [tenantId, name, email, phone]
-    );
+    const { data, error } = await supabase
+      .from('tenants')
+      .insert([{ tenant_id: tenantId, name, email, phone }])
+      .select()
+      .single();
 
-    return result.rows[0];
+    if (error) throw error;
+    return data;
   }
 
   async getTenant(tenantId) {
-    const result = await query(
-      'SELECT * FROM tenants WHERE tenant_id = $1',
-      [tenantId]
-    );
-    return result.rows[0];
+    const { data, error } = await supabase
+      .from('tenants')
+      .select('*')
+      .eq('tenant_id', tenantId)
+      .single();
+
+    if (error && error.code !== 'PGRST116') throw error;
+    return data;
   }
 
   async createTemplate(templateData) {
     const { tenant_id, template_name, service_type, duration_minutes, default_message } = templateData;
 
-    const result = await query(
-      `INSERT INTO booking_templates 
-       (tenant_id, template_name, service_type, duration_minutes, default_message) 
-       VALUES ($1, $2, $3, $4, $5) 
-       RETURNING *`,
-      [tenant_id, template_name, service_type, duration_minutes, default_message]
-    );
+    const { data, error } = await supabase
+      .from('booking_templates')
+      .insert([{ tenant_id, template_name, service_type, duration_minutes, default_message }])
+      .select()
+      .single();
 
-    return result.rows[0];
+    if (error) throw error;
+    return data;
   }
 
   async getTemplates(tenantId) {
-    const result = await query(
-      'SELECT * FROM booking_templates WHERE tenant_id = $1 AND is_active = TRUE',
-      [tenantId]
-    );
-    return result.rows;
+    const { data, error } = await supabase
+      .from('booking_templates')
+      .select('*')
+      .eq('tenant_id', tenantId)
+      .eq('is_active', true);
+
+    if (error) throw error;
+    return data || [];
   }
 
   async getTemplate(tenantId, templateName) {
-    const result = await query(
-      'SELECT * FROM booking_templates WHERE tenant_id = $1 AND template_name = $2 AND is_active = TRUE',
-      [tenantId, templateName]
-    );
-    return result.rows[0];
+    const { data, error } = await supabase
+      .from('booking_templates')
+      .select('*')
+      .eq('tenant_id', tenantId)
+      .eq('template_name', templateName)
+      .eq('is_active', true)
+      .single();
+
+    if (error && error.code !== 'PGRST116') throw error;
+    return data;
   }
 
   async createBooking(bookingData) {
@@ -106,16 +116,11 @@ class BookingService {
       // Continue with local booking even if VoiceOffice fails
     }
 
-    // Create booking in local database
-    const result = await query(
-      `INSERT INTO bookings 
-       (booking_id, tenant_id, customer_name, customer_email, customer_phone, 
-        service_type, booking_date, booking_time, duration_minutes, notes, 
-        voiceoffice_reference, status) 
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) 
-       RETURNING *`,
-      [
-        bookingId,
+    // Create booking in Supabase
+    const { data: booking, error } = await supabase
+      .from('bookings')
+      .insert([{
+        booking_id: bookingId,
         tenant_id,
         customer_name,
         customer_email,
@@ -125,22 +130,24 @@ class BookingService {
         booking_time,
         duration_minutes,
         notes,
-        voiceofficeReference,
-        'confirmed'
-      ]
-    );
+        voiceoffice_reference: voiceofficeReference,
+        status: 'confirmed'
+      }])
+      .select()
+      .single();
 
-    const booking = result.rows[0];
+    if (error) throw error;
 
     // Send WhatsApp notification if phone number provided
     if (customer_phone) {
       try {
         const metaResult = await meta.sendBookingConfirmation(customer_phone, booking);
         if (metaResult.success) {
-          await query(
-            'UPDATE bookings SET meta_notification_sent = TRUE WHERE booking_id = $1',
-            [bookingId]
-          );
+          await supabase
+            .from('bookings')
+            .update({ meta_notification_sent: true })
+            .eq('booking_id', bookingId);
+          
           await this.logNotification(bookingId, 'whatsapp', customer_phone, 'Booking confirmation', 'sent');
         } else {
           await this.logNotification(bookingId, 'whatsapp', customer_phone, 'Booking confirmation', 'failed', metaResult.error);
@@ -155,69 +162,64 @@ class BookingService {
   }
 
   async getBookings(tenantId, filters = {}) {
-    let query_text = 'SELECT * FROM bookings WHERE tenant_id = $1';
-    const params = [tenantId];
-    let paramIndex = 2;
+    let query = supabase
+      .from('bookings')
+      .select('*')
+      .eq('tenant_id', tenantId);
 
     if (filters.date_from) {
-      query_text += ` AND booking_date >= $${paramIndex}`;
-      params.push(filters.date_from);
-      paramIndex++;
+      query = query.gte('booking_date', filters.date_from);
     }
 
     if (filters.date_to) {
-      query_text += ` AND booking_date <= $${paramIndex}`;
-      params.push(filters.date_to);
-      paramIndex++;
+      query = query.lte('booking_date', filters.date_to);
     }
 
     if (filters.status) {
-      query_text += ` AND status = $${paramIndex}`;
-      params.push(filters.status);
-      paramIndex++;
+      query = query.eq('status', filters.status);
     }
 
-    query_text += ' ORDER BY booking_date, booking_time';
+    query = query.order('booking_date').order('booking_time');
 
-    const result = await query(query_text, params);
-    return result.rows;
+    const { data, error } = await query;
+    if (error) throw error;
+    return data || [];
   }
 
   async getBooking(bookingId) {
-    const result = await query(
-      'SELECT * FROM bookings WHERE booking_id = $1',
-      [bookingId]
-    );
-    return result.rows[0];
+    const { data, error } = await supabase
+      .from('bookings')
+      .select('*')
+      .eq('booking_id', bookingId)
+      .single();
+
+    if (error && error.code !== 'PGRST116') throw error;
+    return data;
   }
 
   async updateBooking(bookingId, updates) {
     const allowedFields = ['customer_name', 'customer_email', 'customer_phone', 'booking_date', 'booking_time', 'notes', 'status'];
-    const updateFields = [];
-    const params = [];
-    let paramIndex = 1;
+    const updateData = {};
 
     for (const [key, value] of Object.entries(updates)) {
       if (allowedFields.includes(key)) {
-        updateFields.push(`${key} = $${paramIndex}`);
-        params.push(value);
-        paramIndex++;
+        updateData[key] = value;
       }
     }
 
-    if (updateFields.length === 0) {
+    if (Object.keys(updateData).length === 0) {
       throw new Error('No valid fields to update');
     }
 
-    updateFields.push(`updated_at = CURRENT_TIMESTAMP`);
-    params.push(bookingId);
+    const { data, error } = await supabase
+      .from('bookings')
+      .update(updateData)
+      .eq('booking_id', bookingId)
+      .select()
+      .single();
 
-    const result = await query(
-      `UPDATE bookings SET ${updateFields.join(', ')} WHERE booking_id = $${paramIndex} RETURNING *`,
-      params
-    );
-
-    return result.rows[0];
+    if (error) throw error;
+    return data;
   }
 
   async cancelBooking(bookingId) {
@@ -235,14 +237,15 @@ class BookingService {
       }
     }
 
-    // Update local database
-    const result = await query(
-      `UPDATE bookings SET status = 'cancelled', updated_at = CURRENT_TIMESTAMP 
-       WHERE booking_id = $1 RETURNING *`,
-      [bookingId]
-    );
+    // Update in Supabase
+    const { data: cancelledBooking, error } = await supabase
+      .from('bookings')
+      .update({ status: 'cancelled' })
+      .eq('booking_id', bookingId)
+      .select()
+      .single();
 
-    const cancelledBooking = result.rows[0];
+    if (error) throw error;
 
     // Send cancellation notification
     if (cancelledBooking.customer_phone) {
@@ -259,19 +262,28 @@ class BookingService {
   }
 
   async logNotification(bookingId, type, recipient, message, status, errorMessage = null) {
-    await query(
-      `INSERT INTO notifications (booking_id, notification_type, recipient, message, status, error_message, sent_at) 
-       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-      [bookingId, type, recipient, message, status, errorMessage, status === 'sent' ? new Date() : null]
-    );
+    await supabase
+      .from('notifications')
+      .insert([{
+        booking_id: bookingId,
+        notification_type: type,
+        recipient,
+        message,
+        status,
+        error_message: errorMessage,
+        sent_at: status === 'sent' ? new Date().toISOString() : null
+      }]);
   }
 
   async getNotifications(bookingId) {
-    const result = await query(
-      'SELECT * FROM notifications WHERE booking_id = $1 ORDER BY created_at DESC',
-      [bookingId]
-    );
-    return result.rows;
+    const { data, error } = await supabase
+      .from('notifications')
+      .select('*')
+      .eq('booking_id', bookingId)
+      .order('created_at', { ascending: false });
+
+    if (error) throw error;
+    return data || [];
   }
 }
 
