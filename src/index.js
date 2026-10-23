@@ -12,6 +12,9 @@ const PORT = process.env.PORT || 3000;
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
+// Serve static files from public directory
+app.use(express.static('public'));
+
 // CORS
 app.use((req, res, next) => {
   res.header('Access-Control-Allow-Origin', '*');
@@ -31,8 +34,8 @@ app.get('/favicon.ico', (req, res) => {
   res.status(204).end();
 });
 
-// Root endpoint
-app.get('/', (req, res) => {
+// API info endpoint
+app.get('/api', (req, res) => {
   res.json({
     name: 'VoiceOffice Booking System',
     version: '1.0.0',
